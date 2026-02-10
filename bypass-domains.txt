@@ -1,0 +1,14 @@
+# VPN Bypass — белый список доменов
+# Эти домены будут ходить НАПРЯМУЮ, минуя VPN
+# Формат: один домен на строку (включая поддомены автоматически)
+# Строки начинающиеся с # — комментарии
+
+pochta.ru
+www.pochta.ru
+gosuslugi.ru
+mos.ru
+www.mos.ru
+sberbank.ru
+www.sberbank.ru
+alfabank.ru
+www.alfabank.ru
