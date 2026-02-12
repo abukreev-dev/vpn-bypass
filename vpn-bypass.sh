@@ -57,6 +57,35 @@ resolve_domain() {
     dig +short "$domain" 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' || true
 }
 
+# ---- Обеспечиваем хост-маршрут на нужный gateway ----
+ensure_host_route() {
+    local ip="$1"
+    local gateway="$2"
+
+    # Если маршрут уже через нужный шлюз — ничего делать не нужно.
+    if route -n get "$ip" 2>/dev/null | grep -q "gateway: $gateway"; then
+        return 2
+    fi
+
+    # Обычно хватает add; если хост-маршрут уже существует, add вернёт ошибку.
+    if route add -host "$ip" "$gateway" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    # Для существующего host-route пробуем change.
+    if route change -host "$ip" "$gateway" >/dev/null 2>&1; then
+        return 1
+    fi
+
+    # Последний fallback: удалить host-route и добавить заново.
+    route delete -host "$ip" >/dev/null 2>&1 || true
+    if route add -host "$ip" "$gateway" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    return 3
+}
+
 # ---- Добавляем маршруты ----
 add_routes() {
     local gateway
@@ -99,17 +128,31 @@ add_routes() {
 
         while IFS= read -r ip; do
             # Проверяем, нет ли уже такого маршрута
-            if route -n get "$ip" 2>/dev/null | grep -q "gateway: $gateway"; then
-                echo "  $ip — уже через $gateway, пропускаю"
+            local route_state
+            if ensure_host_route "$ip" "$gateway"; then
+                route_state=0
             else
-                route add -host "$ip" "$gateway" >/dev/null 2>&1 && {
+                route_state=$?
+            fi
+
+            case "$route_state" in
+                0)
                     echo "  $ip ✓"
                     echo "$ip" >> "$ROUTE_LOG"
-                    ((count++))
-                } || {
+                    ((count+=1))
+                    ;;
+                1)
+                    echo "  $ip ↻ обновлён на gateway $gateway"
+                    echo "$ip" >> "$ROUTE_LOG"
+                    ((count+=1))
+                    ;;
+                2)
+                    echo "  $ip — уже через $gateway, пропускаю"
+                    ;;
+                *)
                     echo "  $ip — ошибка при добавлении"
-                }
-            fi
+                    ;;
+            esac
         done <<< "$ips"
 
     done < "$DOMAINS_FILE"
